@@ -1,8 +1,8 @@
 package micro.mentalhealth.project.service;
 
-import micro.mentalhealth.project.dto.NotificationEvent;
+import micro.mentalhealth.project.dto.CreateNotificationRequest;
 import micro.mentalhealth.project.model.Notification;
-import micro.mentalhealth.project.model.enums.Statut;
+import micro.mentalhealth.project.model.NotificationStatut;
 import micro.mentalhealth.project.repository.NotificationRepository;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Service;
@@ -20,13 +20,13 @@ public class NotificationListener {
     }
 
     @RabbitListener(queues = "notification.queue")
-    public void handleMessage(NotificationEvent event) {
+    public void handleMessage(CreateNotificationRequest event) {
         Notification notif = new Notification();
-        notif.setId(UUID.randomUUID());
+        notif.setId(String.valueOf(UUID.randomUUID()));
         notif.setDestinataireId(UUID.fromString(event.getUserId()));
         notif.setMessage(event.getMessage());
         notif.setDateEnvoi(LocalDateTime.now());
-        notif.setStatut(Statut.ENVOYE);
+        notif.setStatut(NotificationStatut.ENVOYEE);
         repository.save(notif);
     }
 }

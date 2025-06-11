@@ -10,6 +10,12 @@ public class RabbitMQConfig {
     public static final String EXCHANGE = "notification.exchange";
     public static final String ROUTING_KEY = "notification.route";
     public static final String QUEUE = "notification.queue";
+    public static final String FEEDBACK_QUEUE ="notification.queue" ;
+    public static final String PAYMENT_QUEUE ="notification.queue" ;
+    public static final String PROGRAM_APPOINTMENTS_CANCELLED_QUEUE ="notification.queue" ;
+    public static final String APPOINTMENT_CANCELLED_QUEUE = "notification.queue";
+    public static final String APPOINTMENT_CONFIRMED_QUEUE ="notification.queue" ;
+    public static final String APPOINTMENT_BOOKED_QUEUE = "notification.queue";
 
     @Bean
     public TopicExchange exchange() {
