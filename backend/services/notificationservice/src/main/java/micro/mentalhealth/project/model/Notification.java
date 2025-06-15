@@ -25,10 +25,7 @@ public class Notification {
 
     private NotificationStatut statut;
 
+    // Le getter est déjà généré par Lombok @Data, mais si tu veux l’écrire explicitement :
     private RecipientType recipientType;  // Ajout du champ
 
-    // Le getter est déjà généré par Lombok @Data, mais si tu veux l’écrire explicitement :
-    public RecipientType getRecipientType() {
-        return recipientType;
-    }
 }

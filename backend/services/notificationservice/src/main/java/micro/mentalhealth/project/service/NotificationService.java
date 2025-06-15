@@ -6,10 +6,14 @@ import micro.mentalhealth.project.mapper.NotificationMapper;
 import micro.mentalhealth.project.model.Notification;
 import micro.mentalhealth.project.model.NotificationStatut;
 import micro.mentalhealth.project.repository.NotificationRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -17,6 +21,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class NotificationService {
 
+    private static final Logger log = LoggerFactory.getLogger(NotificationService.class);
     private final NotificationRepository notificationRepository;
     private final NotificationMapper notificationMapper;
 
@@ -34,8 +39,10 @@ public class NotificationService {
                 .collect(Collectors.toList());
     }
 
+    @Transactional
     public NotificationDto createManualNotification(CreateNotificationRequest request) {
         Notification notification = Notification.builder()
+                .id(UUID.randomUUID().toString())
                 .destinataireId(request.getDestinataireId())
                 .message(request.getMessage())
                 .dateEnvoi(LocalDateTime.now())
@@ -43,74 +50,98 @@ public class NotificationService {
                 .build();
 
         Notification saved = notificationRepository.save(notification);
+        log.info("Notification manuelle créée : {}", saved);
         return notificationMapper.toDto(saved);
     }
 
+    @Transactional
     public NotificationDto updateNotificationStatus(UUID id, NotificationStatut newStatus) {
-        Notification notification = notificationRepository.findById(String.valueOf(id))
+        return notificationRepository.findById(id.toString())
+                .map(notification -> {
+                    notification.setStatut(newStatus);
+                    log.info("Mise à jour du statut de la notification {} : {}", id, newStatus);
+                    return notificationMapper.toDto(notificationRepository.save(notification));
+                })
                 .orElseThrow(() -> new RuntimeException("Notification introuvable"));
-
-        notification.setStatut(newStatus);
-        return notificationMapper.toDto(notificationRepository.save(notification));
     }
 
+    @Transactional
     public NotificationDto resendNotification(UUID id) {
-        Notification notification = notificationRepository.findById(String.valueOf(id))
+        return notificationRepository.findById(id.toString())
+                .map(notification -> {
+                    notification.setDateEnvoi(LocalDateTime.now());
+                    notification.setStatut(NotificationStatut.ENVOYEE);
+                    log.info("Renvoi de la notification {}", id);
+                    return notificationMapper.toDto(notificationRepository.save(notification));
+                })
                 .orElseThrow(() -> new RuntimeException("Notification introuvable"));
-
-        notification.setDateEnvoi(LocalDateTime.now());
-        notification.setStatut(NotificationStatut.ENVOYEE);
-        return notificationMapper.toDto(notificationRepository.save(notification));
     }
 
+    @Transactional
     public void handleDeliveryStatusUpdate(UUID notificationId, boolean success, String details) {
-        Notification notification = notificationRepository.findById(String.valueOf(notificationId))
-                .orElseThrow(() -> new RuntimeException("Notification introuvable"));
-
-        notification.setStatut(success ? NotificationStatut.ENVOYEE : NotificationStatut.ECHEC);
-        notificationRepository.save(notification);
+        Optional<Notification> optionalNotification = notificationRepository.findById(notificationId.toString());
+        optionalNotification.ifPresent(notification -> {
+            notification.setStatut(success ? NotificationStatut.ENVOYEE : NotificationStatut.ECHEC);
+            notificationRepository.save(notification);
+            log.info("Mise à jour du statut de livraison : {} - {}", success ? "Succès" : "Échec", details);
+        });
     }
 
+    @Transactional
     public void handleReadStatusUpdate(UUID notificationId) {
-        Notification notification = notificationRepository.findById(String.valueOf(notificationId))
-                .orElseThrow(() -> new RuntimeException("Notification introuvable"));
-
-        notification.setStatut(NotificationStatut.LUE);
-        notificationRepository.save(notification);
+        Optional<Notification> optionalNotification = notificationRepository.findById(notificationId.toString());
+        optionalNotification.ifPresent(notification -> {
+            notification.setStatut(NotificationStatut.LUE);
+            notificationRepository.save(notification);
+            log.info("Notification {} marquée comme lue.", notificationId);
+        });
     }
 
     public void handleAppointmentBookedEvent(AppointmentBookedEvent event) {
-        String message = "Votre rendez-vous a été réservé avec succès pour le " + event.getDate();
-        saveNotification(event.getPatientId(), message);
+        saveNotificationWithRetry(event.getPatientId(), "Votre rendez-vous est réservé pour le " + event.getDate());
     }
 
     public void handleAppointmentConfirmedEvent(AppointmentConfirmedEvent event) {
-        String message = "Votre rendez-vous du " + event.getDate() + " a été confirmé.";
-        saveNotification(event.getPatientId(), message);
+        saveNotificationWithRetry(event.getPatientId(), "Votre rendez-vous du " + event.getDate() + " a été confirmé.");
     }
 
     public void handleAppointmentCancelledEvent(AppointmentCancelledEvent event) {
-        String message = "Votre rendez-vous du " + event.getDate() + " a été annulé. Motif : " + event.getReason();
-        saveNotification(event.getPatientId(), message);
+        saveNotificationWithRetry(event.getPatientId(), "Votre rendez-vous du " + event.getDate() + " a été annulé. Motif : " + event.getReason());
     }
 
     public void handleProgramAppointmentsCancelledEvent(ProgramAppointmentsCancelledEvent event) {
-        String message = "Tous les rendez-vous du programme ont été annulés. Motif : " + event.getReason();
-        saveNotification(event.getPatientId(), message);
+        saveNotificationWithRetry(event.getPatientId(), "Tous les rendez-vous du programme ont été annulés. Motif : " + event.getReason());
     }
 
     public void handlePaymentReceivedEvent(PaymentReceivedEvent event) {
-        String message = "Paiement de " + event.getAmount() + "€ reçu avec succès. Merci !";
-        saveNotification(event.getPayerId(), message);
+        saveNotificationWithRetry(event.getPayerId(), "Paiement de " + event.getAmount() + "€ reçu avec succès.");
     }
 
     public void handleFeedbackSubmittedEvent(FeedbackSubmittedEvent event) {
-        String message = "Nouveau feedback reçu de la part du patient : " + event.getComment();
-        saveNotification(event.getTherapistId(), message);
+        saveNotificationWithRetry(event.getTherapistId(), "Nouveau feedback reçu : " + event.getComment());
+    }
+
+    private void saveNotificationWithRetry(UUID destinataireId, String message) {
+        int retryCount = 0;
+        while (retryCount < 3) {
+            try {
+                saveNotification(destinataireId, message);
+                log.info("Notification enregistrée après {} tentative(s)", retryCount);
+                return;
+            } catch (Exception e) {
+                log.warn("Échec de l'enregistrement, tentative {}", retryCount);
+                retryCount++;
+                try {
+                    Thread.sleep(2000);
+                } catch (InterruptedException ignored) {}
+            }
+        }
+        log.error("Échec définitif après plusieurs tentatives pour destinataire {}", destinataireId);
     }
 
     private void saveNotification(UUID destinataireId, String message) {
         Notification notification = Notification.builder()
+                .id(UUID.randomUUID().toString())
                 .destinataireId(destinataireId)
                 .message(message)
                 .dateEnvoi(LocalDateTime.now())
@@ -118,5 +149,6 @@ public class NotificationService {
                 .build();
 
         notificationRepository.save(notification);
+        log.info("Notification sauvegardée : {}", notification);
     }
 }
